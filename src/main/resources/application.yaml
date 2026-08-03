@@ -1,29 +1,17 @@
 spring:
-
   application:
-    name: ms-notification--streaming
-  datasource:
-      url: mongodb://localhost:27017/Notification&streamingService_db
-      username: root
-      password: admin
-      driver-class-name: com.mysql.cj.jdbc.Driver
-  jpa:
-      database-platform: org.hibernate.dialect.MySQLDialect # Dialecto para MySQL (traduce las consultas sql a MySQL)
-      hibernate: # sub configuracion para usar el orm
-        ddl-auto: none
-      show-sql: true # Muestra sentencias sql traducidas a lenguaje sql
-      properties: # propiedades extras de hibernate
-        hibernate:
-          format-sql: true # Formatear SQL en los logs para mayor legibilidad
+    name: ms-notification-streaming
 
-logging: # Seccion de logs
-  level: # Niveles por paquete / clase
-    org.springframework.web: DEBUG # Logs detallados para web (request HTTP)
-    org.hibernate.SQL: DEBUG # Muestras queries SQL
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE # Muestra valores bound en queries nativas (remplaza '?' por 'value')
+  mongodb:
+    uri: mongodb://localhost:27017/wd_notification_streaming_db
+
+logging: # Sección de logs
+  level:
+    "[org.springframework.web]": DEBUG # Logs detallados para web (request HTTP)
+    "[org.springframework.data.mongodb]": DEBUG # Muestra las consultas que Spring Data hace a MongoDB
 
 server:
-  port: 9092
+  port: 9091
   servlet:
     context-path: /api/v3
 
