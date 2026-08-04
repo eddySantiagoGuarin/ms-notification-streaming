@@ -1,19 +1,37 @@
 package com.world_dance.ms_notification_._streaming.service;
 
+import java.time.Instant;
+
 import org.springframework.stereotype.Service;
 
+import com.world_dance.wd_lib_common.dto.CreateStreamSessionRequestDto;
+import com.world_dance.wd_lib_common.dto.HttpGlobalResponse;
+import com.world_dance.wd_lib_common.dto.StreamAdminResponseDto;
+import com.world_dance.wd_lib_common.entity.LiveOverlayData;
+import com.world_dance.wd_lib_common.entity.PlatformConfing;
+import com.world_dance.wd_lib_common.entity.StreamSession;
+import com.world_dance.wd_lib_common.entity.Timestamps;
+import com.world_dance.wd_lib_common.entity.VodInfo;
+import com.world_dance.wd_lib_common.enums.StatusStream;
 import com.world_dance.wd_lib_common.repository.StreamSessionRepository;
 
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
-public class streamSessionService {
+public class StreamSessionService {
 
     private final StreamSessionRepository streamSessionRepository ;
 
 
-   /*  public HttpGlobalResponse<StreamAdminResponseDto> createStreamSession(CreateStreamSessionRequestDto request){
+    /**
+     * Crea una nueva sesión de transmisión en vivo para un evento específico.
+     *
+     * @param request DTO que contiene la información necesaria para crear la sesión de transmisión.
+     * @return HttpGlobalResponse que contiene los detalles de la sesión de transmisión creada.
+     * @throws RuntimeException si ya existe una sesión de transmisión para el evento especificado.
+     */
+    public HttpGlobalResponse<StreamAdminResponseDto> createStreamSession(CreateStreamSessionRequestDto request){
         
         if(streamSessionRepository.existsByEventId(request.getEventId())){
             throw new RuntimeException("Este evento ya tiene un stream existente");
@@ -23,44 +41,59 @@ public class streamSessionService {
 
         PlatformConfing platformConfig = new PlatformConfing() ;
 
-        platformConfig.setChannelUrl(request.getChannelUrl());
-        platformConfig.setChannelUrl(request.getChannelUrl()+"/chat");
+        String channelName = request.getChannelUrl().substring(request.getChannelUrl().lastIndexOf("/") + 1);
+    
+        platformConfig.setPlayerIframeUrl("https://player.kick.com/" + channelName);
+        platformConfig.setChatIframeUrl("https://kick.com/popout/" + channelName + "/chat");
 
-        streamSession.setPlatformConfing(platformConfig);
-
+        
         LiveOverlayData liveOverlayData = new LiveOverlayData();
-
+        
         liveOverlayData.setIsActive(false);
         liveOverlayData.setRealTimeScore(0.0);
-
-        VodInfo vodInfo = new VodInfo();
         
+        VodInfo vodInfo = new VodInfo();
+    
         vodInfo.setRecordingUrl("");
         vodInfo.setIsAvailable(false);
-
+        
         Timestamps timestamp = new Timestamps();
-
-
+           
         timestamp.setCreatedAt(Instant.now());
         timestamp.setScheduledFor(request.getScheduleFor());
-
-        streamSession.setEventId(request.getEventId());
-
+        
         StatusStream statusStream = StatusStream.DRAFT ;
-
+        
+        streamSession.setEventId(request.getEventId());
         streamSession.setStatusStream(statusStream);
+        streamSession.setPlatformConfing(platformConfig);
+        streamSession.setLiveOverlayData(liveOverlayData);
+        streamSession.setVodInfo(vodInfo);
+        streamSession.setTimestamps(timestamp);
         
         streamSessionRepository.save(streamSession);
+        
 
         StreamAdminResponseDto streamAdminResponseDto = new StreamAdminResponseDto() ;
 
         streamAdminResponseDto.setId(streamSession.getId());
-        streamAdminResponseDto.set
-        streamAdminResponseDto
-        streamAdminResponseDto
-        streamAdminResponseDto
+        streamAdminResponseDto.setEventId(streamSession.getEventId());
+        streamAdminResponseDto.setStatusStream(streamSession.getStatusStream());
+        streamAdminResponseDto.setProvider(request.getProvider());
+        streamAdminResponseDto.setPlayerIframeUrl(streamSession.getPlatformConfing().getPlayerIframeUrl());
+        streamAdminResponseDto.setVodInfo(streamSession.getVodInfo());
+        streamAdminResponseDto.setTimestamps(streamSession.getTimestamps());
+        streamAdminResponseDto.setLiveOverlayData(streamSession.getLiveOverlayData());
+        streamAdminResponseDto.setChannelUrl(request.getChannelUrl());
+        streamAdminResponseDto.setChatIframeUrl(streamSession.getPlatformConfing().getChatIframeUrl());
         
-    }*/
+        HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
+
+        response.setData(streamAdminResponseDto);
+        response.setMessage("Stream configurado y creado con exito.");
+        
+        return  response ;
+    }
 
 
 }

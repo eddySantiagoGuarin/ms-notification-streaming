@@ -3,19 +3,21 @@ spring:
     name: ms-notification-streaming
 
   mongodb:
-    uri: mongodb://localhost:27017/wd_notification_streaming_db
+      host: ${MONGO_HOST:localhost}
+      port: ${MONGO_PORT:27017}
+      database: ${MONGO_DB:wd_notification_streaming_db}
 
-logging: # Sección de logs
+logging:
   level:
-    "[org.springframework.web]": DEBUG # Logs detallados para web (request HTTP)
-    "[org.springframework.data.mongodb]": DEBUG # Muestra las consultas que Spring Data hace a MongoDB
+    "[org.springframework.web]": ${LOG_LEVEL_WEB:DEBUG}
+    "[org.springframework.data.mongodb]": ${LOG_LEVEL_MONGO:DEBUG}
 
 server:
-  port: 9091
+  port: ${PORT:3005}
   servlet:
-    context-path: /api/v3
+    context-path: ${SERVER_CONTEXT_PATH:/api/v3}
 
 security:
   jwt:
-    secret-key: fx3VDiOxgojN6m3+9reMeoSdyPt7JOq0Zx67hKOIrHI=
-    token-expiration: 900000
+    secret-key: ${JWT_SECRET:/4YXObXeOaR2Q=}
+    token-expiration: ${JWT_TOKEN_EXPIRATION:900000}
