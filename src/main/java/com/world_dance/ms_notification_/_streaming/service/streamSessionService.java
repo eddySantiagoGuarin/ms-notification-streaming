@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import com.world_dance.wd_lib_common.dto.CreateStreamSessionRequestDto;
 import com.world_dance.wd_lib_common.dto.HttpGlobalResponse;
 import com.world_dance.wd_lib_common.dto.StreamAdminResponseDto;
+import com.world_dance.wd_lib_common.dto.StreamPublicResponseDto;
 import com.world_dance.wd_lib_common.entity.LiveOverlayData;
 import com.world_dance.wd_lib_common.entity.PlatformConfing;
 import com.world_dance.wd_lib_common.entity.StreamSession;
@@ -95,5 +96,37 @@ public class StreamSessionService {
         return  response ;
     }
 
+    /**
+     * Obtiene la información de la sesión de transmisión en vivo para un evento específico.
+     *
+     * @param eventId ID del evento para el cual se desea obtener la información de la sesión de transmisión.
+     * @return HttpGlobalResponse que contiene los detalles de la sesión de transmisión.
+     * @throws RuntimeException si no se encuentra una sesión de transmisión configurada para el evento especificado.
+     */
+    public HttpGlobalResponse<StreamPublicResponseDto> getStreamByEventId(Long eventId) {
+
+        StreamSession streamSession = streamSessionRepository.findByEventId(eventId).orElseThrow(() -> new RuntimeException("No se encontro transmision configurada para el evento ID: " + eventId));
+
+        StreamPublicResponseDto publicResponseDto = new StreamPublicResponseDto();
+
+        publicResponseDto.setId(streamSession.getId());
+        publicResponseDto.setEventId(streamSession.getEventId());
+        publicResponseDto.setStatusStream(streamSession.getStatusStream());
+        
+        if (streamSession.getPlatformConfing() != null) {
+            publicResponseDto.setPlayerIframeUrl(streamSession.getPlatformConfing().getPlayerIframeUrl());
+            publicResponseDto.setChatIframeUrl(streamSession.getPlatformConfing().getChatIframeUrl());
+        }
+
+        publicResponseDto.setLiveOverlayData(streamSession.getLiveOverlayData());
+        publicResponseDto.setVodInfo(streamSession.getVodInfo());
+
+        HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+        response.setData(publicResponseDto);
+        response.setMessage("Información de la transmision obtenida con exito.");
+
+        return response;
+
+    }
 
 }
