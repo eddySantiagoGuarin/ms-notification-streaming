@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -14,6 +15,7 @@ import com.world_dance.wd_lib_common.dto.CreateStreamSessionRequestDto;
 import com.world_dance.wd_lib_common.dto.HttpGlobalResponse;
 import com.world_dance.wd_lib_common.dto.StreamAdminResponseDto;
 import com.world_dance.wd_lib_common.dto.StreamPublicResponseDto;
+import com.world_dance.wd_lib_common.dto.UpdateOverlayRequesDto;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -60,6 +62,18 @@ public class StreamSessionController {
     public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> getStreamByEventId(@PathVariable Long eventId) {
         try {
             HttpGlobalResponse<StreamPublicResponseDto> response = streamSessionService.getStreamByEventId(eventId);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        }
+    }
+
+    @PutMapping("/updateOverlay/{eventId}")
+    public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> updateOverlay(@PathVariable Long eventId,@Valid @RequestBody UpdateOverlayRequesDto request) {
+        try {
+            HttpGlobalResponse<StreamPublicResponseDto> response = streamSessionService.updateOverlay(eventId, request);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
