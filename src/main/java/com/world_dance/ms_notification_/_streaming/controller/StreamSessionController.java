@@ -3,6 +3,7 @@ package com.world_dance.ms_notification_._streaming.controller;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.world_dance.ms_notification_._streaming.service.StreamSessionService;
 import com.world_dance.wd_lib_common.dto.CreateStreamSessionRequestDto;
+import com.world_dance.wd_lib_common.dto.FinishStreamRequestDto;
 import com.world_dance.wd_lib_common.dto.HttpGlobalResponse;
 import com.world_dance.wd_lib_common.dto.StreamAdminResponseDto;
 import com.world_dance.wd_lib_common.dto.StreamPublicResponseDto;
@@ -74,6 +76,18 @@ public class StreamSessionController {
     public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> updateOverlay(@PathVariable Long eventId,@Valid @RequestBody UpdateOverlayRequesDto request) {
         try {
             HttpGlobalResponse<StreamPublicResponseDto> response = streamSessionService.updateOverlay(eventId, request);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        }
+    }
+
+    @PatchMapping("/finish/{streamId}")
+    public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> finishStream(@PathVariable String streamId, @RequestBody  FinishStreamRequestDto request ) {
+        try {
+            HttpGlobalResponse<StreamPublicResponseDto> response = streamSessionService.finishStream(streamId, request);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();

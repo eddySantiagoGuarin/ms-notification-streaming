@@ -4,8 +4,8 @@ import java.time.Instant;
 
 import org.springframework.stereotype.Service;
 
-import com.mongodb.internal.connection.Stream;
 import com.world_dance.wd_lib_common.dto.CreateStreamSessionRequestDto;
+import com.world_dance.wd_lib_common.dto.FinishStreamRequestDto;
 import com.world_dance.wd_lib_common.dto.HttpGlobalResponse;
 import com.world_dance.wd_lib_common.dto.StreamAdminResponseDto;
 import com.world_dance.wd_lib_common.dto.StreamPublicResponseDto;
@@ -162,7 +162,47 @@ public class StreamSessionService {
         response.setMessage("Overlay de la transmision actualizada con exito.");
 
         return response;
+ 
+    }
 
+
+    public HttpGlobalResponse<StreamPublicResponseDto> finishStream(String streamId, FinishStreamRequestDto request ){
+
+        StreamSession streamSession = streamSessionRepository.findById(streamId).orElseThrow(() -> new RuntimeException("Session de streaming no encontrada para el evento ID: " + streamId));
+
+        if (streamSession.getTimestamps() == null) {
+        streamSession.setTimestamps(new Timestamps());
+        }
+        if (streamSession.getLiveOverlayData() == null) {
+            streamSession.setLiveOverlayData(new LiveOverlayData());
+        }
+        if (streamSession.getVodInfo() == null) {
+            streamSession.setVodInfo(new VodInfo());
+        }
+
+        streamSession.setStatusStream(StatusStream.FINISHED);
+        streamSession.getTimestamps().setEndAt(Instant.now());
+        streamSession.getLiveOverlayData().setIsActive(false);
+        streamSession.getVodInfo().setIsAvailable(request.getIsAvailable());
+        streamSession.getVodInfo().setRecordingUrl(request.getRecordingUrl());
+
+        streamSessionRepository.save(streamSession);
+        
+        StreamPublicResponseDto publicResponseDto = new StreamPublicResponseDto();
+
+        publicResponseDto.setId(streamSession.getId());
+        publicResponseDto.setEventId(streamSession.getEventId());
+        publicResponseDto.setStatusStream(streamSession.getStatusStream());
+        publicResponseDto.setPlayerIframeUrl(streamSession.getPlatformConfing().getPlayerIframeUrl());
+        publicResponseDto.setChatIframeUrl(streamSession.getPlatformConfing().getChatIframeUrl());
+        publicResponseDto.setLiveOverlayData(streamSession.getLiveOverlayData());
+        publicResponseDto.setVodInfo(streamSession.getVodInfo());
+
+        HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+        response.setData(publicResponseDto);
+        response.setMessage("Se finalizo la transmision con exito.");
+
+        return response;
     }
 
     
