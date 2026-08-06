@@ -21,3 +21,18 @@ security:
   jwt:
     secret-key: ${JWT_SECRET:/4YXObXeOaR2Q=}
     token-expiration: ${JWT_TOKEN_EXPIRATION:900000}
+
+kick:
+  api:
+    client-id: "01KZ87S8TAFPDT23710BSJR46E"
+    client-secret: "1902b06d32418d18f0631463c88a386eecc92feba10f575b03e621395733dfc1"
+    redirect-uri: "http://localhost:3005/api/v3/stream/oauth/callback"
+    auth-url: "https://id.kick.com/oauth/authorize"
+    token-url: "https://id.kick.com/oauth/token"
+    base-url: "https://api.kick.com/public/v1"
+
+obs:
+  websocket:
+    host: localhost
+    port: 4455
+    password: 
