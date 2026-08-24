@@ -149,7 +149,7 @@ public class KickApiClientServiceImpl implements KickApiClientService {
 
         // 6. Mapear la respuesta DTO
         StreamPublicResponseDto publicResponseDto = new StreamPublicResponseDto();
-        publicResponseDto.setEventId(streamSession.getId());
+        publicResponseDto.setEventId(streamSession.getEventId());
         publicResponseDto.setStatusStream(streamSession.getStatusStream());
         publicResponseDto.setLiveOverlayData(streamSession.getLiveOverlayData());
         publicResponseDto.setVodInfo(streamSession.getVodInfo());
