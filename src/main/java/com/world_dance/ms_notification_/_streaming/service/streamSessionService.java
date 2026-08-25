@@ -122,7 +122,7 @@ public class StreamSessionService {
         StreamPublicResponseDto publicResponseDto = new StreamPublicResponseDto();
 
         publicResponseDto.setId(streamSession.getId());
-        publicResponseDto.setEventId(streamSession.getId());
+        publicResponseDto.setEventId(streamSession.getEventId());
         publicResponseDto.setStatusStream(streamSession.getStatusStream());
         publicResponseDto.setPlayerIframeUrl(streamSession.getPlatformConfing().getPlayerIframeUrl());
         publicResponseDto.setChatIframeUrl(streamSession.getPlatformConfing().getChatIframeUrl());
@@ -168,7 +168,7 @@ public class StreamSessionService {
         StreamPublicResponseDto publicResponseDto = new StreamPublicResponseDto();
 
         publicResponseDto.setId(streamSession.getId());
-        publicResponseDto.setEventId(streamSession.getId());
+        publicResponseDto.setEventId(streamSession.getEventId());
         publicResponseDto.setStatusStream(streamSession.getStatusStream());
         publicResponseDto.setPlayerIframeUrl(streamSession.getPlatformConfing().getPlayerIframeUrl());
         publicResponseDto.setChatIframeUrl(streamSession.getPlatformConfing().getChatIframeUrl());
@@ -212,7 +212,7 @@ public class StreamSessionService {
         StreamPublicResponseDto publicResponseDto = new StreamPublicResponseDto();
 
         publicResponseDto.setId(streamSession.getId());
-        publicResponseDto.setEventId(streamSession.getId());
+        publicResponseDto.setEventId(streamSession.getEventId());
         publicResponseDto.setStatusStream(streamSession.getStatusStream());
         
         if (streamSession.getPlatformConfing() != null) {
