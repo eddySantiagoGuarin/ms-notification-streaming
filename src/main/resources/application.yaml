@@ -3,13 +3,21 @@ spring:
     name: ms-notification-streaming
 
   mongodb:
-    host: ${MONGO_HOST:localhost}
+    host: ${MONGO_HOST:worlddance-mongodb}
     port: ${MONGO_PORT:27017}
     database: ${MONGO_DB:wd_notification_streaming_db}
+    uri: ${SPRING_DATA_MONGODB_URI:mongodb://${MONGO_HOST:worlddance-mongodb}:${MONGO_PORT:27017}/${MONGO_DB:wd_notification_streaming_db}}
+
+  data:
+    mongodb:
+      host: ${MONGO_HOST:worlddance-mongodb}
+      port: ${MONGO_PORT:27017}
+      database: ${MONGO_DB:wd_notification_streaming_db}
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://${MONGO_HOST:worlddance-mongodb}:${MONGO_PORT:27017}/${MONGO_DB:wd_notification_streaming_db}}
 
   cloud:
     consul:
-      host: ${SPRING_CLOUD_CONSUL_HOST:${CONSUL_HOST:localhost}}
+      host: ${SPRING_CLOUD_CONSUL_HOST:${CONSUL_HOST:worlddance-consul}}
       port: ${SPRING_CLOUD_CONSUL_PORT:${CONSUL_PORT:8500}}
       health-indicator:
         enabled: false
@@ -30,22 +38,34 @@ server:
   servlet:
     context-path: ${SERVER_SERVLET_CONTEXT_PATH:/api/v1}
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include:
+          - health
+          - info
+  endpoint:
+    health:
+      show-details: always
+  health:
+    mongo:
+      enabled: false
+
 security:
   jwt:
-    secret-key: ${JWT_SECRET:/4YXObXeOaR2Q=}
+    secret-key: ${JWT_SECRET:F0bVQgRnuk6DRxooVWKaG0ndlgqEeI/4YXObXeOaR2Q=}
     token-expiration: ${JWT_TOKEN_EXPIRATION:900000}
 
 kick:
   api:
     client-id: "01KZ87S8TAFPDT23710BSJR46E"
     client-secret: "1902b06d32418d18f0631463c88a386eecc92feba10f575b03e621395733dfc1"
-    redirect-uri: "http://localhost:9095/api/v1/stream/oauth/callback"
+    redirect-uri: "https://api.worlddance.win/api/v1/stream/oauth/callback"
     auth-url: "https://id.kick.com/oauth/authorize"
     token-url: "https://id.kick.com/oauth/token"
     base-url: "https://api.kick.com/public/v1"
 
-obs:
-  websocket:
-    host: ${OBS_WEBSOCKET_HOST:host.docker.internal}
-    port: ${OBS_WEBSOCKET_PORT:4455}
-    password: ${OBS_WEBSOCKET_PASSWORD:}
+ffmpeg:
+  manager:
+    url: ${FFMPEG_MANAGER_URL:http://ffmpeg-manager:3000}
