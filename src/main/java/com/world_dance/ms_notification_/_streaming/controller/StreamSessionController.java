@@ -4,12 +4,14 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,52 +30,67 @@ import com.world_dance.wd_lib_common.entity.StreamSession;
 import com.world_dance.wd_lib_common.repository.StreamSessionRepository;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 
-
-
+/**
+ * Controlador REST encargado de administrar el ciclo de vida y los endpoints de transmisión en vivo.
+ * Permite a los usuarios autorizados (creador/ownerId del evento, STAFF y ADMIN) crear sesiones de stream,
+ * controlar el encendido y apagado del directo (Start/Stop), actualizar el overlay de puntajes en tiempo real,
+ * autenticarse con la API de Kick mediante OAuth 2.0 y consultar información pública y administrativa.
+ */
+@Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/stream")
 public class StreamSessionController {
-    
-    private final StreamSessionService streamSessionService ;
 
-    private final KickApiClientService kickApiClientService ;
-
+    private final StreamSessionService streamSessionService;
+    private final KickApiClientService kickApiClientService;
     private final StreamSessionRepository streamSessionRepository;
 
-
     /**
-     * Endpoint para crear una nueva sesión de transmisión en vivo para un evento específico.
+     * Crea una nueva sesión de transmisión en vivo para un evento específico.
+     * Realiza las comprobaciones de autorización para garantizar que únicamente el ownerId del evento,
+     * o usuarios con rol STAFF o ADMIN en el evento puedan crear la sesión de transmisión.
      *
-     * @param request DTO que contiene la información necesaria para crear la sesión de transmisión.
-     * @return ResponseEntity que contiene el HttpGlobalResponse con los detalles de la sesión de transmisión creada.
-     *         Si ocurre un error, devuelve un ResponseEntity con el mensaje de error y el estado BAD_REQUEST.
+     * @param authenticatedUserId ID del usuario autenticado proveniente del encabezado X-User-Id
+     * @param userRoleHeader      Rol del usuario enviado en el encabezado X-User-Role (opcional)
+     * @param request             DTO con los datos requeridos para la creación de la sesión
+     * @return respuesta global con los detalles administrativos del stream y código 201 CREATED
      */
     @PostMapping("/createStreamSession")
-    public ResponseEntity<HttpGlobalResponse<StreamAdminResponseDto>> createStreaminSeassion(@Valid @RequestBody CreateStreamSessionRequestDto request) {
+    public ResponseEntity<HttpGlobalResponse<StreamAdminResponseDto>> createStreaminSeassion(
+            @RequestHeader(value = "X-User-Id", required = false) Long authenticatedUserId,
+            @RequestHeader(value = "X-User-Role", required = false) String userRoleHeader,
+            @Valid @RequestBody CreateStreamSessionRequestDto request) {
         try {
-
-            HttpGlobalResponse<StreamAdminResponseDto> response = streamSessionService.createStreamSession(request);
+            HttpGlobalResponse<StreamAdminResponseDto> response = streamSessionService.createStreamSession(request, authenticatedUserId, userRoleHeader);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
-           
+        } catch (SecurityException e) {
+            HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
         } catch (Exception e) {
             HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
-        } 
+        }
     }
-    
+
     /**
-     * Endpoint para obtener la información de la sesión de transmisión en vivo para un evento específico.
+     * Consulta pública de los detalles de la sesión de transmisión por ID del evento (IFrame de reproductor, chat, VODs).
+     * Accesible por cualquier usuario o participante público.
      *
-     * @param eventId ID del evento para el cual se desea obtener la información de la sesión de transmisión.
-     * @return ResponseEntity que contiene el HttpGlobalResponse con los detalles de la sesión de transmisión.
-     *         Si ocurre un error, devuelve un ResponseEntity con el mensaje de error y el estado NOT_FOUND.
+     * @param eventId ID del evento consultado
+     * @return respuesta global con el DTO público de la sesión de transmisión
      */
     @GetMapping("/event/{eventId}")
-    public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> getStreamByEventId(@PathVariable Long eventId) {
+    public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> getStreamByEventId(
+            @PathVariable
+            @NotNull(message = "El ID del evento es obligatorio")
+            @Positive(message = "El ID del evento debe ser un número positivo") Long eventId) {
         try {
             HttpGlobalResponse<StreamPublicResponseDto> response = streamSessionService.getStreamByEventId(eventId);
             return ResponseEntity.ok(response);
@@ -84,11 +101,31 @@ public class StreamSessionController {
         }
     }
 
+    /**
+     * Actualiza los datos de la superposición gráfica (overlay) en vivo para el evento (puntaje en tiempo real, participante actual).
+     * Requiere permisos de ownerId del evento, STAFF o ADMIN.
+     *
+     * @param authenticatedUserId ID del usuario autenticado proveniente del encabezado X-User-Id
+     * @param userRoleHeader      Rol del usuario enviado en el encabezado X-User-Role
+     * @param eventId             ID del evento
+     * @param request             DTO con la información actualizada del overlay
+     * @return respuesta global con los datos del stream actualizados
+     */
     @PutMapping("/updateOverlay/{eventId}")
-    public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> updateOverlay(@PathVariable Long eventId,@Valid @RequestBody UpdateOverlayRequesDto request) {
+    public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> updateOverlay(
+            @RequestHeader(value = "X-User-Id", required = false) Long authenticatedUserId,
+            @RequestHeader(value = "X-User-Role", required = false) String userRoleHeader,
+            @PathVariable
+            @NotNull(message = "El ID del evento es obligatorio")
+            @Positive(message = "El ID del evento debe ser un número positivo") Long eventId,
+            @Valid @RequestBody UpdateOverlayRequesDto request) {
         try {
-            HttpGlobalResponse<StreamPublicResponseDto> response = streamSessionService.updateOverlay(eventId, request);
+            HttpGlobalResponse<StreamPublicResponseDto> response = streamSessionService.updateOverlay(eventId, request, authenticatedUserId, userRoleHeader);
             return ResponseEntity.ok(response);
+        } catch (SecurityException e) {
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
         } catch (Exception e) {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
@@ -96,11 +133,29 @@ public class StreamSessionController {
         }
     }
 
+    /**
+     * Finaliza una sesión de transmisión por ID de sesión y registra los datos del VOD.
+     * Requiere permisos de ownerId del evento, STAFF o ADMIN.
+     *
+     * @param authenticatedUserId ID del usuario autenticado
+     * @param userRoleHeader      Rol del usuario enviado en encabezados
+     * @param streamId            ID de la sesión de transmisión en MongoDB
+     * @param request             DTO con los datos del VOD
+     * @return respuesta global con el DTO público final del stream
+     */
     @PatchMapping("/finish/{streamId}")
-    public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> finishStream(@PathVariable String streamId, @RequestBody  FinishStreamRequestDto request ) {
+    public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> finishStream(
+            @RequestHeader(value = "X-User-Id", required = false) Long authenticatedUserId,
+            @RequestHeader(value = "X-User-Role", required = false) String userRoleHeader,
+            @PathVariable String streamId,
+            @RequestBody FinishStreamRequestDto request) {
         try {
-            HttpGlobalResponse<StreamPublicResponseDto> response = streamSessionService.finishStream(streamId, request);
+            HttpGlobalResponse<StreamPublicResponseDto> response = streamSessionService.finishStream(streamId, request, authenticatedUserId, userRoleHeader);
             return ResponseEntity.ok(response);
+        } catch (SecurityException e) {
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
         } catch (Exception e) {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
@@ -108,17 +163,37 @@ public class StreamSessionController {
         }
     }
 
+    /**
+     * Enciende o apaga la transmisión en vivo (Start/Stop) para un evento específico.
+     * Controla el contenedor Docker en ffmpeg-manager, actualiza la API de Kick y el estado en MongoDB.
+     * Requiere permisos de autorización (ownerId del evento, STAFF o ADMIN).
+     *
+     * @param authenticatedUserId ID del usuario autenticado proveniente de X-User-Id
+     * @param userRoleHeader      Rol del usuario enviado en X-User-Role
+     * @param eventId             ID único del evento a controlar
+     * @param request             DTO opcional con banderas enable, sourceType y destinationUrl
+     * @param enable              parámetro opcional en URL query
+     * @return respuesta global con el DTO actualizado de la sesión
+     */
     @RequestMapping(value = "/toggleState/{eventId}", method = {org.springframework.web.bind.annotation.RequestMethod.PATCH, org.springframework.web.bind.annotation.RequestMethod.POST, org.springframework.web.bind.annotation.RequestMethod.GET})
     public ResponseEntity<HttpGlobalResponse<StreamPublicResponseDto>> toggleStreamState(
-            @PathVariable Long eventId,
+            @RequestHeader(value = "X-User-Id", required = false) Long authenticatedUserId,
+            @RequestHeader(value = "X-User-Role", required = false) String userRoleHeader,
+            @PathVariable
+            @NotNull(message = "El ID del evento es obligatorio")
+            @Positive(message = "El ID del evento debe ser un número positivo") Long eventId,
             @RequestBody(required = false) ToggleStreamStateRequestDto request,
             @RequestParam(required = false) Boolean enable) {
         try {
             if (request == null && enable != null) {
                 request = new ToggleStreamStateRequestDto(enable);
             }
-            HttpGlobalResponse<StreamPublicResponseDto> response = kickApiClientService.toggleStreamState(eventId, request);
+            HttpGlobalResponse<StreamPublicResponseDto> response = kickApiClientService.toggleStreamState(eventId, request, authenticatedUserId, userRoleHeader);
             return ResponseEntity.ok(response);
+        } catch (SecurityException e) {
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
         } catch (Exception e) {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
@@ -126,58 +201,112 @@ public class StreamSessionController {
         }
     }
 
-    @GetMapping("/oauth/callback")
-    public ResponseEntity<HttpGlobalResponse<String>> handleKickCallback(
-        @RequestParam("code") String code,
-        @RequestParam(value = "state", required = false) String state) {
-
-    // Verifier fijo que usamos en el login
-    String codeVerifier = "WD_STREAMING_DEVELOPMENT_CODE_VERIFIER_1234567890";
-
-    // 1. Intercambiar el código enviando el verifier
-    KickOAuthToken tokens = kickApiClientService.exchangeCodeForTokens(code, codeVerifier);
-
-    // 2. Asociar tokens a la sesión (usando 'state' como eventId si viene presente)
-    if (state != null) {
-        Long eventId = Long.parseLong(state);
-        StreamSession session = streamSessionRepository.findByEventId(eventId)
-                .orElseThrow(() -> new RuntimeException("No se encontró sesión para el evento: " + eventId));
-        
-        session.setKickOAuthToken(tokens);
-        streamSessionRepository.save(session);
+    /**
+     * Consulta el estado en tiempo real del proceso de transmisión en ffmpeg-manager.
+     *
+     * @param eventId ID del evento
+     * @return respuesta global con el mapa de estado (RUNNING, STOPPED, FAILED, etc.)
+     */
+    @GetMapping("/status/{eventId}")
+    public ResponseEntity<HttpGlobalResponse<Map<String, Object>>> getStreamStatus(
+            @PathVariable
+            @NotNull(message = "El ID del evento es obligatorio")
+            @Positive(message = "El ID del evento debe ser un número positivo") Long eventId) {
+        try {
+            Map<String, Object> statusMap = kickApiClientService.getStreamStatus(eventId);
+            HttpGlobalResponse<Map<String, Object>> response = new HttpGlobalResponse<>();
+            response.setData(statusMap);
+            response.setMessage("Estado del stream consultado correctamente.");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            HttpGlobalResponse<Map<String, Object>> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        }
     }
 
-    HttpGlobalResponse<String> response = new HttpGlobalResponse<>();
-    response.setData(tokens.getAccessToken());
-    response.setMessage("¡Autenticación con Kick exitosa! Token guardado en MongoDB.");
+    /**
+     * Callback OAuth 2.0 de Kick para recibir el código de autorización e intercambiarlo por tokens.
+     *
+     * @param code  código de autorización enviado por Kick
+     * @param state parámetro opcional conteniendo el eventId
+     * @return respuesta global con el token de acceso obtenido
+     */
+    @GetMapping("/oauth/callback")
+    public ResponseEntity<HttpGlobalResponse<String>> handleKickCallback(
+            @RequestParam("code") String code,
+            @RequestParam(value = "state", required = false) String state) {
 
-    return ResponseEntity.ok(response);
-}
+        String codeVerifier = "WD_STREAMING_DEVELOPMENT_CODE_VERIFIER_1234567890";
+        KickOAuthToken tokens = kickApiClientService.exchangeCodeForTokens(code, codeVerifier);
 
+        if (state != null) {
+            Long eventId = Long.parseLong(state);
+            StreamSession session = streamSessionRepository.findByEventId(eventId)
+                    .orElseThrow(() -> new RuntimeException("No se encontró sesión para el evento: " + eventId));
 
-    @GetMapping("/oauth/kick/login")
-    public ResponseEntity<HttpGlobalResponse<String>> getKickAuthUrl(@RequestParam(defaultValue = "1") String state) {
-        String authUrl = kickApiClientService.generateAuthorizationUrl(state);
-        
+            session.setKickOAuthToken(tokens);
+            streamSessionRepository.save(session);
+        }
+
         HttpGlobalResponse<String> response = new HttpGlobalResponse<>();
-        response.setData(authUrl);
-        response.setMessage("Abre el enlace adjunto en el navegador para autorizar Kick.");
-        
+        response.setData(tokens.getAccessToken());
+        response.setMessage("¡Autenticación con Kick exitosa! Token guardado en MongoDB.");
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Genera y retorna la URL de autorización para iniciar sesión con la cuenta de Kick.
+     *
+     * @param state parámetro opcional para mantener contexto (ID del evento)
+     * @return respuesta global con la URL de login
+     */
+    @GetMapping("/oauth/kick/login")
+    public ResponseEntity<HttpGlobalResponse<String>> getKickAuthUrl(@RequestParam(defaultValue = "1") String state) {
+        String authUrl = kickApiClientService.generateAuthorizationUrl(state);
+
+        HttpGlobalResponse<String> response = new HttpGlobalResponse<>();
+        response.setData(authUrl);
+        response.setMessage("Abre el enlace adjunto en el navegador para autorizar Kick.");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Obtiene las credenciales de transmisión RTMP asociadas al token OAuth de Kick.
+     *
+     * @param streamId ID de la sesión de transmisión
+     * @return respuesta global con las credenciales
+     */
     @GetMapping("/credentials/{streamId}")
     public ResponseEntity<HttpGlobalResponse<Map<String, String>>> getObsCredentials(@PathVariable String streamId) {
         HttpGlobalResponse<Map<String, String>> response = streamSessionService.getObsCredentials(streamId);
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Obtiene la información administrativa completa de una sesión de transmisión (credenciales RTMP e Ingesta WHIP).
+     * Requiere permisos de ownerId del evento, STAFF o ADMIN.
+     *
+     * @param authenticatedUserId ID del usuario autenticado proveniente de X-User-Id
+     * @param userRoleHeader      Rol del usuario enviado en X-User-Role
+     * @param eventId             ID del evento consultado
+     * @return respuesta global con el DTO administrativo
+     */
     @GetMapping("/admin/event/{eventId}")
-    public ResponseEntity<HttpGlobalResponse<StreamAdminResponseDto>> getAdminStreamByEventId(@PathVariable Long eventId){
+    public ResponseEntity<HttpGlobalResponse<StreamAdminResponseDto>> getAdminStreamByEventId(
+            @RequestHeader(value = "X-User-Id", required = false) Long authenticatedUserId,
+            @RequestHeader(value = "X-User-Role", required = false) String userRoleHeader,
+            @PathVariable
+            @NotNull(message = "El ID del evento es obligatorio")
+            @Positive(message = "El ID del evento debe ser un número positivo") Long eventId) {
         try {
-            HttpGlobalResponse<StreamAdminResponseDto> response = streamSessionService.getAdminStreamByEventId(eventId);
+            HttpGlobalResponse<StreamAdminResponseDto> response = streamSessionService.getAdminStreamByEventId(eventId, authenticatedUserId, userRoleHeader);
             response.setMessage("Información de la sesión de transmisión obtenida correctamente.");
             return ResponseEntity.ok(response);
+        } catch (SecurityException e) {
+            HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
         } catch (Exception e) {
             HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
