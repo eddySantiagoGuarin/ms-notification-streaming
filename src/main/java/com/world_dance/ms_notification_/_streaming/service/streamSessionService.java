@@ -1,6 +1,7 @@
 package com.world_dance.ms_notification_._streaming.service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Service;
@@ -11,6 +12,7 @@ import com.world_dance.wd_lib_common.dto.CreateStreamSessionRequestDto;
 import com.world_dance.wd_lib_common.dto.EventResponseDto;
 import com.world_dance.wd_lib_common.dto.FinishStreamRequestDto;
 import com.world_dance.wd_lib_common.dto.HttpGlobalResponse;
+import com.world_dance.wd_lib_common.dto.LiveStreamResponseDto;
 import com.world_dance.wd_lib_common.dto.StreamAdminResponseDto;
 import com.world_dance.wd_lib_common.dto.StreamPublicResponseDto;
 import com.world_dance.wd_lib_common.dto.UpdateOverlayRequesDto;
@@ -165,8 +167,11 @@ public class StreamSessionService {
         streamAdminResponseDto.setRtmpUrl(streamSession.getRtmpUrl());
         streamAdminResponseDto.setStreamKey(streamSession.getStreamKey());
 
-        String whipUrl = String.format("https://api.worlddance.win/rtc/v1/whip/?app=live&stream=%d", streamSession.getEventId());
-        streamAdminResponseDto.setIngestWhipUrl(whipUrl);
+        // WebSocket puro (TCP) en vez de WHIP/WebRTC: el UDP de ICE/RTC no atraviesa el túnel de
+        // Cloudflare, que solo reenvía HTTP(S)/WS. El navegador graba con MediaRecorder y envía los
+        // chunks por este socket hacia ffmpeg-manager, que los reempuja como RTMP hacia SRS.
+        String ingestUrl = String.format("wss://api.worlddance.win/ws/ingest/%d", streamSession.getEventId());
+        streamAdminResponseDto.setIngestUrl(ingestUrl);
 
         HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
         response.setData(streamAdminResponseDto);
@@ -319,6 +324,47 @@ public class StreamSessionService {
     }
 
     /**
+     * Lista pública de todas las sesiones actualmente en vivo (statusStream = LIVE). Alimenta el
+     * indicador y el menú "En Vivo" de la navbar del frontend; no requiere autenticación, igual que
+     * {@link #getStreamByEventId(Long)}.
+     *
+     * @return respuesta global con la lista de eventos en vivo (eventId + nombre del evento)
+     */
+    public HttpGlobalResponse<List<LiveStreamResponseDto>> getLiveStreams() {
+        List<LiveStreamResponseDto> liveStreams = streamSessionRepository.findByStatusStream(StatusStream.LIVE)
+                .stream()
+                .map(this::toLiveStreamResponseDto)
+                .filter(dto -> dto != null)
+                .toList();
+
+        HttpGlobalResponse<List<LiveStreamResponseDto>> response = new HttpGlobalResponse<>();
+        response.setData(liveStreams);
+        response.setMessage("Transmisiones en vivo obtenidas con éxito.");
+        return response;
+    }
+
+    /**
+     * Enriquece una sesión en vivo con el nombre real del evento (ms-event-category vía Feign).
+     * Si esa consulta falla para un evento puntual, se omite de la lista en vez de tumbar el
+     * listado completo por un problema transitorio de un solo evento.
+     */
+    private LiveStreamResponseDto toLiveStreamResponseDto(StreamSession streamSession) {
+        try {
+            HttpGlobalResponse<EventResponseDto> eventResponse = eventCategoryFeignClient.getEventById(streamSession.getEventId());
+            String eventName = eventResponse.getData() != null ? eventResponse.getData().getName() : null;
+
+            LiveStreamResponseDto dto = new LiveStreamResponseDto();
+            dto.setEventId(streamSession.getEventId());
+            dto.setEventName(eventName != null ? eventName : ("Evento #" + streamSession.getEventId()));
+            return dto;
+        } catch (Exception e) {
+            log.warn("No se pudo obtener el nombre del evento {} para el listado de transmisiones en vivo: {}",
+                    streamSession.getEventId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Obtiene la configuración administrativa completa de un stream (incluye credenciales RTMP e Ingesta WHIP).
      * Requiere permisos de ownerId, STAFF o ADMIN del evento.
      *
@@ -349,8 +395,8 @@ public class StreamSessionService {
         adminResponseDto.setRtmpUrl(streamSession.getRtmpUrl());
         adminResponseDto.setStreamKey(streamSession.getStreamKey());
 
-        String whipUrl = String.format("https://api.worlddance.win/rtc/v1/whip/?app=live&stream=%d", streamSession.getEventId());
-        adminResponseDto.setIngestWhipUrl(whipUrl);
+        String ingestUrl = String.format("wss://api.worlddance.win/ws/ingest/%d", streamSession.getEventId());
+        adminResponseDto.setIngestUrl(ingestUrl);
 
         HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
         response.setData(adminResponseDto);

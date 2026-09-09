@@ -1,5 +1,6 @@
 package com.world_dance.ms_notification_._streaming.controller;
 
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
@@ -21,6 +22,7 @@ import com.world_dance.ms_notification_._streaming.service.StreamSessionService;
 import com.world_dance.wd_lib_common.dto.CreateStreamSessionRequestDto;
 import com.world_dance.wd_lib_common.dto.FinishStreamRequestDto;
 import com.world_dance.wd_lib_common.dto.HttpGlobalResponse;
+import com.world_dance.wd_lib_common.dto.LiveStreamResponseDto;
 import com.world_dance.wd_lib_common.dto.StreamAdminResponseDto;
 import com.world_dance.wd_lib_common.dto.StreamPublicResponseDto;
 import com.world_dance.wd_lib_common.dto.ToggleStreamStateRequestDto;
@@ -99,6 +101,18 @@ public class StreamSessionController {
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
         }
+    }
+
+    /**
+     * Lista pública de todos los eventos actualmente en vivo (statusStream = LIVE). Alimenta el
+     * indicador/menú "En Vivo" de la navbar; accesible por cualquier usuario, autenticado o no.
+     *
+     * @return respuesta global con la lista de eventos en vivo (eventId + nombre)
+     */
+    @GetMapping("/live")
+    public ResponseEntity<HttpGlobalResponse<List<LiveStreamResponseDto>>> getLiveStreams() {
+        HttpGlobalResponse<List<LiveStreamResponseDto>> response = streamSessionService.getLiveStreams();
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -284,7 +298,7 @@ public class StreamSessionController {
     }
 
     /**
-     * Obtiene la información administrativa completa de una sesión de transmisión (credenciales RTMP e Ingesta WHIP).
+     * Obtiene la información administrativa completa de una sesión de transmisión (credenciales RTMP e ingestUrl WebSocket).
      * Requiere permisos de ownerId del evento, STAFF o ADMIN.
      *
      * @param authenticatedUserId ID del usuario autenticado proveniente de X-User-Id
