@@ -80,6 +80,20 @@
 					<groupId>org.springframework.boot</groupId>
 					<artifactId>spring-boot-starter-data-jpa</artifactId>
 				</exclusion>
+				<!--
+				 jjwt-jackson trae com.fasterxml.jackson.core:jackson-databind 2.x, que convive con
+				 el tools.jackson (Jackson 3) que Spring Boot 4.1 aporta por defecto vía
+				 spring-boot-starter-jackson. Tener ambas familias de Jackson en el mismo classpath
+				 rompe la resolución de HttpMessageConverters que usa Spring Cloud OpenFeign
+				 (síntoma: "'messageConverters' must not be empty" al llamar a los Feign clients).
+				 Este microservicio nunca parsea/firma JWTs directamente (JwtUtil de wd-lib-common
+				 no se usa aquí; solo confía en los headers X-User-Id/X-User-Role que ya inyectó el
+				 api-gateway), así que es seguro excluirlo sin afectar autenticación.
+				-->
+				<exclusion>
+					<groupId>io.jsonwebtoken</groupId>
+					<artifactId>jjwt-jackson</artifactId>
+				</exclusion>
    			 </exclusions>
         </dependency>
 

@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 
 import com.world_dance.ms_notification_._streaming.client.EnrollmentFeignClient;
 import com.world_dance.ms_notification_._streaming.client.EventCategoryFeignClient;
+import com.world_dance.ms_notification_._streaming.exception.KickUnauthorizedException;
+import com.world_dance.ms_notification_._streaming.exception.StreamSessionNotFoundException;
 import com.world_dance.wd_lib_common.dto.CreateStreamSessionRequestDto;
 import com.world_dance.wd_lib_common.dto.EventResponseDto;
 import com.world_dance.wd_lib_common.dto.FinishStreamRequestDto;
@@ -16,7 +18,9 @@ import com.world_dance.wd_lib_common.dto.LiveStreamResponseDto;
 import com.world_dance.wd_lib_common.dto.StreamAdminResponseDto;
 import com.world_dance.wd_lib_common.dto.StreamPublicResponseDto;
 import com.world_dance.wd_lib_common.dto.UpdateOverlayRequesDto;
+import com.world_dance.wd_lib_common.dto.UpdateStreamConfigRequestDto;
 import com.world_dance.wd_lib_common.dto.UserEventRoleResponseDto;
+import com.world_dance.wd_lib_common.entity.KickOAuthToken;
 import com.world_dance.wd_lib_common.entity.LiveOverlayData;
 import com.world_dance.wd_lib_common.entity.PlatformConfing;
 import com.world_dance.wd_lib_common.entity.StreamSession;
@@ -97,6 +101,22 @@ public class StreamSessionService {
     }
 
     /**
+     * Traduce el token OAuth de Kick (si existe) a los dos campos que consume el frontend: si está
+     * vigente ahora mismo y cuándo expira. `expiresIn` son segundos desde `obtainedAt`.
+     */
+    private void applyKickTokenStatus(StreamAdminResponseDto dto, KickOAuthToken token) {
+        if (token == null || token.getObtainedAt() == null || token.getExpiresIn() == null) {
+            dto.setKickTokenLinked(false);
+            dto.setKickTokenExpiresAt(null);
+            return;
+        }
+
+        Instant expiresAt = token.getObtainedAt().plusSeconds(token.getExpiresIn());
+        dto.setKickTokenExpiresAt(expiresAt);
+        dto.setKickTokenLinked(Instant.now().isBefore(expiresAt));
+    }
+
+    /**
      * Crea y configura una nueva sesión de transmisión en vivo para un evento específico en MongoDB.
      * Valida permisos de administración (ownerId del evento, STAFF o ADMIN).
      *
@@ -150,6 +170,7 @@ public class StreamSessionService {
         streamSession.setTimestamps(timestamp);
         streamSession.setRtmpUrl(rtmp);
         streamSession.setStreamKey(request.getStreamKey());
+        streamSession.setChannelUrl(request.getChannelUrl());
 
         streamSessionRepository.save(streamSession);
 
@@ -166,6 +187,7 @@ public class StreamSessionService {
         streamAdminResponseDto.setChatIframeUrl(streamSession.getPlatformConfing().getChatIframeUrl());
         streamAdminResponseDto.setRtmpUrl(streamSession.getRtmpUrl());
         streamAdminResponseDto.setStreamKey(streamSession.getStreamKey());
+        applyKickTokenStatus(streamAdminResponseDto, streamSession.getKickOAuthToken());
 
         // WebSocket puro (TCP) en vez de WHIP/WebRTC: el UDP de ICE/RTC no atraviesa el túnel de
         // Cloudflare, que solo reenvía HTTP(S)/WS. El navegador graba con MediaRecorder y envía los
@@ -193,7 +215,7 @@ public class StreamSessionService {
         validateAdminPermission(eventId, authenticatedUserId, userRoleHeader);
 
         StreamSession streamSession = streamSessionRepository.findByEventId(eventId)
-                .orElseThrow(() -> new RuntimeException("Sesión de transmisión no encontrada para el evento ID: " + eventId));
+                .orElseThrow(() -> new StreamSessionNotFoundException("Sesión de transmisión no encontrada para el evento ID: " + eventId));
 
         if (streamSession.getLiveOverlayData() == null) {
             streamSession.setLiveOverlayData(new LiveOverlayData());
@@ -233,7 +255,7 @@ public class StreamSessionService {
      */
     public HttpGlobalResponse<StreamPublicResponseDto> finishStream(String streamId, FinishStreamRequestDto request, Long authenticatedUserId, String userRoleHeader) {
         StreamSession streamSession = streamSessionRepository.findById(streamId)
-                .orElseThrow(() -> new RuntimeException("Sesión de transmisión no encontrada para el ID: " + streamId));
+                .orElseThrow(() -> new StreamSessionNotFoundException("Sesión de transmisión no encontrada para el ID: " + streamId));
 
         validateAdminPermission(streamSession.getEventId(), authenticatedUserId, userRoleHeader);
 
@@ -249,7 +271,13 @@ public class StreamSessionService {
 
         if (streamSession.getKickOAuthToken() != null && streamSession.getKickOAuthToken().getAccessToken() != null) {
             String accessToken = streamSession.getKickOAuthToken().getAccessToken();
-            kickApiClientService.updateStreamStatusOnKick(accessToken, false);
+            try {
+                kickApiClientService.updateStreamStatusOnKick(accessToken, false);
+            } catch (KickUnauthorizedException e) {
+                // Finalizar la transmisión localmente nunca debe bloquearse porque el token de Kick
+                // ya no sirve; el usuario debe poder cerrar su propia sesión siempre.
+                log.warn("No se pudo notificar a Kick el fin de la transmisión (token inválido): {}", e.getMessage());
+            }
         }
 
         streamSession.setStatusStream(StatusStream.FINISHED);
@@ -283,7 +311,7 @@ public class StreamSessionService {
      */
     public HttpGlobalResponse<Map<String, String>> getObsCredentials(String streamId) {
         StreamSession streamSession = streamSessionRepository.findById(streamId)
-                .orElseThrow(() -> new RuntimeException("Sesión no encontrada: " + streamId));
+                .orElseThrow(() -> new StreamSessionNotFoundException("Sesión no encontrada: " + streamId));
 
         String accessToken = streamSession.getKickOAuthToken().getAccessToken();
         Map<String, String> credentials = kickApiClientService.getStreamCredentials(accessToken);
@@ -302,7 +330,7 @@ public class StreamSessionService {
      */
     public HttpGlobalResponse<StreamPublicResponseDto> getStreamByEventId(Long eventId) {
         StreamSession streamSession = streamSessionRepository.findByEventId(eventId)
-                .orElseThrow(() -> new RuntimeException("No se encontró transmisión configurada para el evento ID: " + eventId));
+                .orElseThrow(() -> new StreamSessionNotFoundException("No se encontró transmisión configurada para el evento ID: " + eventId));
 
         StreamPublicResponseDto publicResponseDto = new StreamPublicResponseDto();
         publicResponseDto.setId(streamSession.getId());
@@ -377,7 +405,7 @@ public class StreamSessionService {
         validateAdminPermission(eventId, authenticatedUserId, userRoleHeader);
 
         StreamSession streamSession = streamSessionRepository.findByEventId(eventId)
-                .orElseThrow(() -> new RuntimeException("No se encontró transmisión configurada para el evento ID: " + eventId));
+                .orElseThrow(() -> new StreamSessionNotFoundException("No se encontró transmisión configurada para el evento ID: " + eventId));
 
         StreamAdminResponseDto adminResponseDto = new StreamAdminResponseDto();
         adminResponseDto.setId(streamSession.getId());
@@ -394,6 +422,10 @@ public class StreamSessionService {
 
         adminResponseDto.setRtmpUrl(streamSession.getRtmpUrl());
         adminResponseDto.setStreamKey(streamSession.getStreamKey());
+        adminResponseDto.setChannelUrl(streamSession.getChannelUrl());
+        adminResponseDto.setTitle(streamSession.getTitle());
+        adminResponseDto.setDescription(streamSession.getDescription());
+        applyKickTokenStatus(adminResponseDto, streamSession.getKickOAuthToken());
 
         String ingestUrl = String.format("wss://api.worlddance.win/ws/ingest/%d", streamSession.getEventId());
         adminResponseDto.setIngestUrl(ingestUrl);
@@ -401,6 +433,65 @@ public class StreamSessionService {
         HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
         response.setData(adminResponseDto);
         response.setMessage("Información administrativa del stream obtenida con éxito.");
+        return response;
+    }
+
+    /**
+     * Actualiza la configuración de ingesta/retransmisión de una sesión ya creada: servidor RTMP,
+     * clave de retransmisión, canal y título/descripción propios de la sesión. No modifica
+     * statusStream: el ciclo de vida LIVE/FINISHED se gestiona con toggleState/finishStream.
+     * Requiere permisos de ownerId del evento, STAFF o ADMIN.
+     *
+     * @param eventId             ID del evento cuya sesión se edita
+     * @param request             DTO con los nuevos valores de configuración
+     * @param authenticatedUserId ID del usuario autenticado
+     * @param userRoleHeader      Rol del usuario enviado en encabezados
+     * @return respuesta global con los datos administrativos del stream actualizados
+     */
+    public HttpGlobalResponse<StreamAdminResponseDto> updateStreamConfig(Long eventId, UpdateStreamConfigRequestDto request, Long authenticatedUserId, String userRoleHeader) {
+        validateAdminPermission(eventId, authenticatedUserId, userRoleHeader);
+
+        StreamSession streamSession = streamSessionRepository.findByEventId(eventId)
+                .orElseThrow(() -> new StreamSessionNotFoundException("No se encontró transmisión configurada para el evento ID: " + eventId));
+
+        PlatformConfing platformConfig = streamSession.getPlatformConfing() != null
+                ? streamSession.getPlatformConfing()
+                : new PlatformConfing();
+        String channelName = request.getChannelUrl().substring(request.getChannelUrl().lastIndexOf("/") + 1);
+        platformConfig.setPlayerIframeUrl("https://player.kick.com/" + channelName);
+        platformConfig.setChatIframeUrl("https://kick.com/popout/" + channelName + "/chat");
+
+        streamSession.setPlatformConfing(platformConfig);
+        streamSession.setChannelUrl(request.getChannelUrl());
+        streamSession.setRtmpUrl(request.getRtmpUrl());
+        streamSession.setStreamKey(request.getStreamKey());
+        streamSession.setTitle(request.getTitle());
+        streamSession.setDescription(request.getDescription());
+
+        streamSessionRepository.save(streamSession);
+
+        StreamAdminResponseDto adminResponseDto = new StreamAdminResponseDto();
+        adminResponseDto.setId(streamSession.getId());
+        adminResponseDto.setEventId(streamSession.getEventId());
+        adminResponseDto.setStatusStream(streamSession.getStatusStream());
+        adminResponseDto.setVodInfo(streamSession.getVodInfo());
+        adminResponseDto.setTimestamps(streamSession.getTimestamps());
+        adminResponseDto.setLiveOverlayData(streamSession.getLiveOverlayData());
+        adminResponseDto.setPlayerIframeUrl(platformConfig.getPlayerIframeUrl());
+        adminResponseDto.setChatIframeUrl(platformConfig.getChatIframeUrl());
+        adminResponseDto.setRtmpUrl(streamSession.getRtmpUrl());
+        adminResponseDto.setStreamKey(streamSession.getStreamKey());
+        adminResponseDto.setChannelUrl(streamSession.getChannelUrl());
+        adminResponseDto.setTitle(streamSession.getTitle());
+        adminResponseDto.setDescription(streamSession.getDescription());
+        applyKickTokenStatus(adminResponseDto, streamSession.getKickOAuthToken());
+
+        String ingestUrl = String.format("wss://api.worlddance.win/ws/ingest/%d", streamSession.getEventId());
+        adminResponseDto.setIngestUrl(ingestUrl);
+
+        HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
+        response.setData(adminResponseDto);
+        response.setMessage("Configuración de transmisión actualizada con éxito.");
         return response;
     }
 }

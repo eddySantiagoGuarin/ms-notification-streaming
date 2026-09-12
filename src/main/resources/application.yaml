@@ -69,3 +69,11 @@ kick:
 ffmpeg:
   manager:
     url: ${FFMPEG_MANAGER_URL:http://ffmpeg-manager:3000}
+
+app:
+  frontend:
+    # Origen del frontend al que se redirige tras el callback OAuth de Kick
+    # (StreamSessionController.handleKickCallback). El valor por defecto apunta a `ng serve` en
+    # local; docker-compose.yml exporta FRONTEND_BASE_URL=https://worlddance.win explícitamente
+    # para producción, así que este default nunca se usa fuera de ejecutar el jar/IDE directo.
+    base-url: ${FRONTEND_BASE_URL:http://localhost:4200}
