@@ -1,8 +1,10 @@
 package com.world_dance.ms_notification_._streaming.controller;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -17,6 +19,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.world_dance.ms_notification_._streaming.exception.InvalidStreamRequestException;
+import com.world_dance.ms_notification_._streaming.exception.KickUnauthorizedException;
+import com.world_dance.ms_notification_._streaming.exception.StreamSessionNotFoundException;
 import com.world_dance.ms_notification_._streaming.service.KickApiClientService;
 import com.world_dance.ms_notification_._streaming.service.StreamSessionService;
 import com.world_dance.wd_lib_common.dto.CreateStreamSessionRequestDto;
@@ -27,6 +32,7 @@ import com.world_dance.wd_lib_common.dto.StreamAdminResponseDto;
 import com.world_dance.wd_lib_common.dto.StreamPublicResponseDto;
 import com.world_dance.wd_lib_common.dto.ToggleStreamStateRequestDto;
 import com.world_dance.wd_lib_common.dto.UpdateOverlayRequesDto;
+import com.world_dance.wd_lib_common.dto.UpdateStreamConfigRequestDto;
 import com.world_dance.wd_lib_common.entity.KickOAuthToken;
 import com.world_dance.wd_lib_common.entity.StreamSession;
 import com.world_dance.wd_lib_common.repository.StreamSessionRepository;
@@ -35,6 +41,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Controlador REST encargado de administrar el ciclo de vida y los endpoints de transmisión en vivo.
@@ -42,6 +49,7 @@ import lombok.RequiredArgsConstructor;
  * controlar el encendido y apagado del directo (Start/Stop), actualizar el overlay de puntajes en tiempo real,
  * autenticarse con la API de Kick mediante OAuth 2.0 y consultar información pública y administrativa.
  */
+@Slf4j
 @Validated
 @RestController
 @RequiredArgsConstructor
@@ -51,6 +59,14 @@ public class StreamSessionController {
     private final StreamSessionService streamSessionService;
     private final KickApiClientService kickApiClientService;
     private final StreamSessionRepository streamSessionRepository;
+
+    /**
+     * Origen del frontend al que se redirige tras el callback OAuth de Kick. En Docker/producción
+     * es https://worlddance.win; en desarrollo local, exporta FRONTEND_BASE_URL=http://localhost:4200
+     * para que la redirección resuelva contra `ng serve` en vez del dominio público.
+     */
+    @Value("${app.frontend.base-url}")
+    private String frontendBaseUrl;
 
     /**
      * Crea una nueva sesión de transmisión en vivo para un evento específico.
@@ -96,10 +112,15 @@ public class StreamSessionController {
         try {
             HttpGlobalResponse<StreamPublicResponseDto> response = streamSessionService.getStreamByEventId(eventId);
             return ResponseEntity.ok(response);
-        } catch (Exception e) {
+        } catch (StreamSessionNotFoundException e) {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        } catch (Exception e) {
+            log.error("Error inesperado consultando el stream del evento {}: {}", eventId, e.getMessage(), e);
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
 
@@ -140,10 +161,15 @@ public class StreamSessionController {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
-        } catch (Exception e) {
+        } catch (StreamSessionNotFoundException e) {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        } catch (Exception e) {
+            log.error("Error inesperado actualizando el overlay del evento {}: {}", eventId, e.getMessage(), e);
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
 
@@ -170,10 +196,15 @@ public class StreamSessionController {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
-        } catch (Exception e) {
+        } catch (StreamSessionNotFoundException e) {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        } catch (Exception e) {
+            log.error("Error inesperado finalizando la sesión {}: {}", streamId, e.getMessage(), e);
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
 
@@ -208,10 +239,30 @@ public class StreamSessionController {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
-        } catch (Exception e) {
+        } catch (StreamSessionNotFoundException e) {
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        } catch (InvalidStreamRequestException e) {
             HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        } catch (KickUnauthorizedException e) {
+            // 400, NO 401: el interceptor global del frontend trata cualquier 401 como "expiró la
+            // sesión del usuario en WorldDance" y fuerza un logout — este 401 es de Kick, no del JWT
+            // del usuario, así que un 401 real aquí desloguearía a alguien por error.
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        } catch (Exception e) {
+            // Aquí caen, entre otros, los fallos reales de encendido: ffmpeg-manager inalcanzable,
+            // contenedor Docker que no arranca, etc. Antes se reportaban como 400 (Bad Request), lo
+            // cual sugería un problema con los datos enviados cuando en realidad es un fallo del
+            // lado del servidor/infraestructura al intentar iniciar la transmisión.
+            log.error("Error inesperado en toggleState para el evento {}: {}", eventId, e.getMessage(), e);
+            HttpGlobalResponse<StreamPublicResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
 
@@ -242,31 +293,46 @@ public class StreamSessionController {
     /**
      * Callback OAuth 2.0 de Kick para recibir el código de autorización e intercambiarlo por tokens.
      *
+     * A diferencia del resto del controlador, esto lo visita directamente el navegador del
+     * organizador (no una llamada AJAX del frontend): Kick redirige aquí tras la autorización. Por
+     * eso responde con una redirección 302 de vuelta al panel de administración en lugar de un JSON
+     * crudo — y por lo mismo nunca se devuelve el access token en la respuesta HTTP visible.
+     *
      * @param code  código de autorización enviado por Kick
      * @param state parámetro opcional conteniendo el eventId
-     * @return respuesta global con el token de acceso obtenido
+     * @return 302 hacia /stream/admin/{eventId}?kick=success (o ?kick=error si algo falla)
      */
     @GetMapping("/oauth/callback")
-    public ResponseEntity<HttpGlobalResponse<String>> handleKickCallback(
+    public ResponseEntity<Void> handleKickCallback(
             @RequestParam("code") String code,
             @RequestParam(value = "state", required = false) String state) {
 
         String codeVerifier = "WD_STREAMING_DEVELOPMENT_CODE_VERIFIER_1234567890";
-        KickOAuthToken tokens = kickApiClientService.exchangeCodeForTokens(code, codeVerifier);
+        String fallbackUrl = frontendBaseUrl + "/stream/admin?kick=error";
 
-        if (state != null) {
+        try {
+            KickOAuthToken tokens = kickApiClientService.exchangeCodeForTokens(code, codeVerifier);
+
+            if (state == null) {
+                return redirectTo(fallbackUrl);
+            }
+
             Long eventId = Long.parseLong(state);
             StreamSession session = streamSessionRepository.findByEventId(eventId)
                     .orElseThrow(() -> new RuntimeException("No se encontró sesión para el evento: " + eventId));
 
             session.setKickOAuthToken(tokens);
             streamSessionRepository.save(session);
-        }
 
-        HttpGlobalResponse<String> response = new HttpGlobalResponse<>();
-        response.setData(tokens.getAccessToken());
-        response.setMessage("¡Autenticación con Kick exitosa! Token guardado en MongoDB.");
-        return ResponseEntity.ok(response);
+            return redirectTo(frontendBaseUrl + "/stream/admin/" + eventId + "?kick=success");
+        } catch (Exception e) {
+            log.warn("Fallo al procesar el callback OAuth de Kick: {}", e.getMessage());
+            return redirectTo(fallbackUrl);
+        }
+    }
+
+    private ResponseEntity<Void> redirectTo(String location) {
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(location)).build();
     }
 
     /**
@@ -321,10 +387,57 @@ public class StreamSessionController {
             HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
-        } catch (Exception e) {
+        } catch (StreamSessionNotFoundException e) {
             HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
             response.setMessage(e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        } catch (Exception e) {
+            // Antes CUALQUIER excepción aquí (timeout de Feign hacia ms-event-category/ms-enrollment,
+            // NPE, error de Mongo, etc.) se devolvía como 404 "no existe", ocultando el error real
+            // detrás de un mensaje que sugería falsamente que la sesión nunca se creó.
+            log.error("Error inesperado consultando el panel admin del evento {}: {}", eventId, e.getMessage(), e);
+            HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * Actualiza la configuración de ingesta/retransmisión de una sesión ya creada (servidor RTMP,
+     * clave de retransmisión, canal, título/descripción). Requiere permisos de ownerId del evento,
+     * STAFF o ADMIN. No modifica el estado de la sesión (statusStream): eso lo gobiernan
+     * toggleState/finishStream.
+     *
+     * @param authenticatedUserId ID del usuario autenticado proveniente de X-User-Id
+     * @param userRoleHeader      Rol del usuario enviado en X-User-Role
+     * @param eventId             ID del evento cuya sesión se edita
+     * @param request             DTO con los nuevos valores de configuración
+     * @return respuesta global con el DTO administrativo actualizado
+     */
+    @PutMapping("/config/{eventId}")
+    public ResponseEntity<HttpGlobalResponse<StreamAdminResponseDto>> updateStreamConfig(
+            @RequestHeader(value = "X-User-Id", required = false) Long authenticatedUserId,
+            @RequestHeader(value = "X-User-Role", required = false) String userRoleHeader,
+            @PathVariable
+            @NotNull(message = "El ID del evento es obligatorio")
+            @Positive(message = "El ID del evento debe ser un número positivo") Long eventId,
+            @Valid @RequestBody UpdateStreamConfigRequestDto request) {
+        try {
+            HttpGlobalResponse<StreamAdminResponseDto> response = streamSessionService.updateStreamConfig(eventId, request, authenticatedUserId, userRoleHeader);
+            return ResponseEntity.ok(response);
+        } catch (SecurityException e) {
+            HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+        } catch (StreamSessionNotFoundException e) {
+            HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        } catch (Exception e) {
+            log.error("Error inesperado actualizando la configuración del evento {}: {}", eventId, e.getMessage(), e);
+            HttpGlobalResponse<StreamAdminResponseDto> response = new HttpGlobalResponse<>();
+            response.setMessage(e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
 }
